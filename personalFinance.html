@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Expense Tracker</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+
+body{
+font-family:Segoe UI,Tahoma,sans-serif;
+background:linear-gradient(135deg,#0f172a,#1e293b);
+padding:25px;
+color:#fff;
+}
+
+.wrapper{
+max-width:1000px;
+margin:auto;
+background:#fff;
+color:#111827;
+border-radius:18px;
+padding:25px;
+box-shadow:0 15px 40px rgba(0,0,0,.25);
+}
+
+h1{
+text-align:center;
+color:#0f172a;
+margin-bottom:25px;
+}
+
+.stats{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+gap:15px;
+margin-bottom:25px;
+}
+
+.box{
+padding:18px;
+border-radius:15px;
+text-align:center;
+color:white;
+}
+
+.balance{background:#2563eb;}
+.income{background:#16a34a;}
+.expense{background:#dc2626;}
+
+.box p:first-child{
+font-size:14px;
+opacity:.9;
+}
+
+.box h2{
+margin-top:8px;
+font-size:28px;
+}
+
+form{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+gap:12px;
+margin-bottom:18px;
+}
+
+input,select,button{
+padding:12px;
+border-radius:10px;
+border:1px solid #d1d5db;
+font-size:15px;
+}
+
+button{
+background:#2563eb;
+color:white;
+border:none;
+cursor:pointer;
+transition:.25s;
+}
+
+button:hover{
+transform:translateY(-2px);
+background:#1d4ed8;
+}
+
+.topbar{
+display:flex;
+gap:10px;
+margin-bottom:15px;
+flex-wrap:wrap;
+}
+
+.search{
+flex:1;
+min-width:200px;
+}
+
+.actions{
+display:flex;
+gap:8px;
+}
+
+.clearBtn{
+background:#dc2626;
+}
+
+.exportBtn{
+background:#16a34a;
+}
+
+ul{
+list-style:none;
+margin-top:15px;
+}
+
+li{
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:14px;
+margin-bottom:10px;
+border-radius:12px;
+background:#f8fafc;
+transition:.25s;
+}
+
+li:hover{
+transform:translateX(4px);
+}
+
+.left{
+display:flex;
+flex-direction:column;
+}
+
+.date{
+font-size:12px;
+color:#6b7280;
+}
+
+.amountIncome{color:#16a34a;font-weight:bold;}
+.amountExpense{color:#dc2626;font-weight:bold;}
+
+.icons button{
+padding:6px 9px;
+font-size:14px;
+}
+
+canvas{
+margin-top:25px;
+}
+
+.empty{
+text-align:center;
+padding:20px;
+color:#64748b;
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+
+<h1>💰 Smart Expense Tracker</h1>
+
+<div class="stats">
+<div class="box balance">
+<p>Net Balance</p>
+<h2 id="balance">₹0</h2>
+</div>
+
+<div class="box income">
+<p>Total Income</p>
+<h2 id="income">₹0</h2>
+</div>
+
+<div class="box expense">
+<p>Total Expense</p>
+<h2 id="expense">₹0</h2>
+</div>
+</div>
+
+<form id="entryForm">
+
+<select id="type">
+<option value="income">Income</option>
+<option value="expense">Expense</option>
+</select>
+
+<input id="category" placeholder="Category" required>
+
+<input id="amount" type="number" placeholder="Amount" required>
+
+<input id="date" type="date" required>
+
+<button>Add</button>
+
+</form>
+
+<div class="topbar">
+
+<input id="search" class="search" placeholder="Search category...">
+
+<div class="actions">
+<button class="exportBtn" onclick="downloadCSV()">Export</button>
+<button class="clearBtn" onclick="clearAll()">Clear All</button>
+</div>
+
+</div>
+
+<ul id="list"></ul>
+
+<canvas id="categoryChart"></canvas>
+<canvas id="monthChart"></canvas>
+
+</div>
+
+<script>
+
+let records=JSON.parse(localStorage.getItem("financeRecords"))||[];
+let editId=null;
+
+const format=new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"});
+
+const form=document.getElementById("entryForm");
+const list=document.getElementById("list");
+const search=document.getElementById("search");
+
+let catChart,monthChart;
+
+form.addEventListener("submit",e=>{
+e.preventDefault();
+
+const data={
+type:type.value,
+category:category.value.trim(),
+amount:Number(amount.value),
+date:date.value
+};
+
+if(data.amount<=0)return alert("Enter valid amount.");
+
+if(editId!==null){
+records[editId]=data;
+editId=null;
+}else{
+records.push(data);
+}
+
+save();
+form.reset();
+});
+
+search.addEventListener("input",render);
+
+function save(){
+localStorage.setItem("financeRecords",JSON.stringify(records));
+render();
+}
+
+function render(){
+
+list.innerHTML="";
+
+let income=0;
+let expense=0;
+
+const filtered=records.filter(r=>
+r.category.toLowerCase().includes(search.value.toLowerCase())
+);
+
+filtered.sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+if(filtered.length===0){
+list.innerHTML='<div class="empty">No transactions found.</div>';
+}
+
+filtered.forEach((item,index)=>{
+
+if(item.type==="income")income+=item.amount;
+else expense+=item.amount;
+
+const li=document.createElement("li");
+
+li.innerHTML=`
+<div class="left">
+<strong>${item.category}</strong>
+<span class="date">${item.date}</span>
+</div>
+
+<div>
+<span class="${item.type==="income"?"amountIncome":"amountExpense"}">
+${item.type==="income"?"+":"-"}${format.format(item.amount)}
+</span>
+
+<span class="icons">
+<button onclick="editRecord(${records.indexOf(item)})">✏️</button>
+<button onclick="deleteRecord(${records.indexOf(item)})">🗑️</button>
+</span>
+
+</div>`;
+
+list.appendChild(li);
+
+});
+
+const totalIncome=records.filter(r=>r.type==="income").reduce((a,b)=>a+b.amount,0);
+const totalExpense=records.filter(r=>r.type==="expense").reduce((a,b)=>a+b.amount,0);
+const balance=totalIncome-totalExpense;
+
+balance.textContent=format.format(balance);
+income.textContent=format.format(totalIncome);
+expense.textContent=format.format(totalExpense);
+
+document.querySelector(".balance").style.background=
+balance>=0?"#2563eb":"#b91c1c";
+
+drawCharts();
+
+}
+
+function deleteRecord(i){
+records.splice(i,1);
+save();
+}
+
+function editRecord(i){
+const r=records[i];
+
+type.value=r.type;
+category.value=r.category;
+amount.value=r.amount;
+date.value=r.date;
+
+editId=i;
+}
+
+function clearAll(){
+if(confirm("Delete all transactions?")){
+records=[];
+save();
+}
+}
+
+function drawCharts(){
+
+const categoryData={};
+
+records.forEach(r=>{
+categoryData[r.category]=(categoryData[r.category]||0)+r.amount;
+});
+
+if(catChart)catChart.destroy();
+
+catChart=new Chart(categoryChart,{
+type:"doughnut",
+data:{
+labels:Object.keys(categoryData),
+datasets:[{
+data:Object.values(categoryData),
+backgroundColor:[
+"#2563eb","#16a34a","#dc2626",
+"#f59e0b","#7c3aed","#0ea5e9","#ec4899"
+]
+}]
+}
+});
+
+const months={};
+
+records.forEach(r=>{
+const m=r.date.slice(0,7);
+months[m]=months[m]||{income:0,expense:0};
+months[m][r.type]+=r.amount;
+});
+
+if(monthChart)monthChart.destroy();
+
+monthChart=new Chart(monthChart,{
+type:"bar",
+data:{
+labels:Object.keys(months),
+datasets:[
+{
+label:"Income",
+data:Object.values(months).map(x=>x.income),
+backgroundColor:"#16a34a"
+},
+{
+label:"Expense",
+data:Object.values(months).map(x=>x.expense),
+backgroundColor:"#dc2626"
+}
+]
+},
+options:{
+responsive:true,
+plugins:{
+legend:{position:"top"}
+}
+}
+});
+
+}
+
+function downloadCSV(){
+
+let csv="Type,Category,Amount,Date\n";
+
+records.forEach(r=>{
+csv+=`${r.type},${r.category},${r.amount},${r.date}\n`;
+});
+
+const blob=new Blob([csv],{type:"text/csv"});
+const url=URL.createObjectURL(blob);
+
+const a=document.createElement("a");
+a.href=url;
+a.download=`finance-report-${new Date().toISOString().slice(0,10)}.csv`;
+a.click();
+
+URL.revokeObjectURL(url);
+
+}
+
+render();
+
+</script>
+
+</body>
+</html>
